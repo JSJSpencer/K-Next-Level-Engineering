@@ -1,7 +1,7 @@
 # K-Next-Level-Engineering
 *Capstone Team 13 Github*
 
-<h1>Rollercoaster Sequencer
+<h1>**Rollercoaster Sequencer**
 <img width="1920" height="1020" alt="image" src="https://github.com/user-attachments/assets/d5f9c727-cf1f-4968-9c50-7433aa64b44d" />
 
 *Power on the Microcontroller by flipping the switch to the downward position*.
