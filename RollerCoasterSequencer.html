@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rollercoaster Sequencer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; padding: 24px; }
+  .subtitle { font-size: 0.8rem; color: #666; margin-bottom: 24px; }
+  .card { background: #1a1d27; border: 1px solid #2a2d3a; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: #888; margin-bottom: 14px; }
+  .status-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #444; flex-shrink: 0; }
+  .dot.connected { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+  .dot.connecting { background: #facc15; animation: pulse 1s infinite; }
+  .dot.error { background: #f87171; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .status-text { font-size: 0.9rem; color: #aaa; }
+  button { padding: 10px 20px; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  button:disabled { opacity: 0.35; cursor: not-allowed; }
+  .btn-primary { background: #3b82f6; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #2563eb; }
+  .btn-success { background: #16a34a; color: #fff; }
+  .btn-success:hover:not(:disabled) { background: #15803d; }
+  .btn-danger { background: #dc2626; color: #fff; }
+  .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+  .btn-secondary { background: #2a2d3a; color: #ccc; border: 1px solid #3a3d4a; }
+  .btn-secondary:hover:not(:disabled) { background: #3a3d4a; }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .drop-zone { border: 2px dashed #3a3d4a; border-radius: 10px; padding: 32px; text-align: center; color: #666; cursor: pointer; transition: all 0.2s; margin-bottom: 14px; }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #3b82f6; color: #3b82f6; background: #1e2235; }
+  .drop-zone input { display: none; }
+  .drop-zone p { font-size: 0.85rem; margin-top: 6px; }
+  .table-wrap { overflow-x: auto; max-height: 220px; overflow-y: auto; border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  th { background: #12151f; color: #7eb8f7; padding: 8px 12px; text-align: left; position: sticky; top: 0; }
+  td { padding: 6px 12px; border-bottom: 1px solid #1e2130; color: #ccc; }
+  .progress-wrap { margin-top: 14px; }
+  .progress-label { display: flex; justify-content: space-between; font-size: 0.75rem; color: #666; margin-bottom: 6px; }
+  .progress-bar { background: #1e2130; border-radius: 99px; height: 8px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #3b82f6, #7eb8f7); border-radius: 99px; transition: width 0.3s; }
+  .log { background: #0d0f18; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 0.75rem; max-height: 140px; overflow-y: auto; color: #6ee7b7; margin-top: 14px; }
+  .log-entry { margin-bottom: 2px; }
+  .log-entry.err { color: #f87171; }
+  .log-entry.info { color: #93c5fd; }
+  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .summary-item { background: #12151f; border-radius: 8px; padding: 10px 16px; flex: 1; min-width: 100px; }
+  .summary-item .val { font-size: 1.3rem; font-weight: 700; color: #7eb8f7; }
+  .summary-item .lbl { font-size: 0.7rem; color: #666; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <h1 style="font-size:1.4rem;font-weight:600;color:#7eb8f7">🎢 Rollercoaster Sequencer</h1>
+    <span style="color:#333;font-size:0.72rem;font-style:italic;margin-top:2px">Powered by Claude AI</span>
+  </div>
+  <p style="font-size:0.95rem;color:#7eb8f7;margin-top:3px;font-weight:700;letter-spacing:0.04em;font-style:italic">K'Next Level Engineering</p>
+  <p class="subtitle" style="margin-top:6px;margin-bottom:0">Upload a CSV, connect to your XIAO nRF52840, then start the sequence.</p>
+</div>
+
+<!-- CONNECTION CARD -->
+<div class="card">
+  <h2>1 · Bluetooth Connection</h2>
+  <div class="status-row">
+    <div class="dot" id="dot"></div>
+    <span class="status-text" id="statusText">Not connected</span>
+  </div>
+  <div class="btn-row">
+    <button class="btn-primary" id="btnConnect" onclick="connectBLE()">Connect to Train</button>
+    <button class="btn-secondary" id="btnDisconnect" disabled onclick="disconnectBLE()">Disconnect</button>
+    <button class="btn-secondary" onclick="resetApp()">↺ New CSV</button>
+  </div>
+</div>
+
+<!-- CSV CARD -->
+<div class="card">
+  <h2>2 · Load CSV</h2>
+  <div class="drop-zone" id="dropZone"
+    onclick="document.getElementById('fileInput').click()"
+    ondragover="event.preventDefault();this.classList.add('dragover')"
+    ondragleave="this.classList.remove('dragover')"
+    ondrop="handleDrop(event)">
+    <input type="file" id="fileInput" accept=".csv" onchange="loadFile(this.files[0])">
+    <div style="font-size:2rem">📂</div>
+    <p>Click or drag & drop a CSV file</p>
+    <p style="font-size:0.72rem;margin-top:4px;color:#555">Expected columns: index, pwm_value, pwm_time</p>
+  </div>
+  <div id="summaryWrap" style="display:none">
+    <div class="summary">
+      <div class="summary-item"><div class="val" id="sumRows">-</div><div class="lbl">Rows</div></div>
+      <div class="summary-item"><div class="val" id="sumMaxPWM">-</div><div class="lbl">Max PWM</div></div>
+      <div class="summary-item"><div class="val" id="sumTotalTime">-</div><div class="lbl">Total Time (ms)</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Index</th><th>PWM Value</th><th>PWM Time (ms)</th></tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- SEND + RUN CARD -->
+<div class="card">
+  <h2>3 · Upload & Run</h2>
+  <div class="btn-row" style="margin-bottom:14px">
+    <button class="btn-primary" id="btnUpload" disabled onclick="uploadSequence()">Upload Sequence</button>
+    <button class="btn-success" id="btnStart" disabled onclick="startSequence()">▶ Start</button>
+    <button class="btn-danger" id="btnStop" disabled onclick="stopSequence()">⏹ Stop</button>
+  </div>
+  <div class="progress-wrap" id="progressWrap" style="display:none">
+    <div class="progress-label">
+      <span id="progLabel">Uploading…</span>
+      <span id="progPct">0%</span>
+    </div>
+    <div class="progress-bar"><div class="progress-fill" id="progFill" style="width:0%"></div></div>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+// ── BLE UUIDs ─────────────────────────────────────────────────────────────────
+var SVC_UUID  = '19b10000-e8f2-537e-4f6c-d104768a1214';
+var DATA_UUID = '19b10001-e8f2-537e-4f6c-d104768a1214';
+var CMD_UUID  = '19b10002-e8f2-537e-4f6c-d104768a1214';
+
+// ── State ─────────────────────────────────────────────────────────────────────
+var device, server, dataChar, cmdChar;
+var rows = [];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function log(msg, type) {
+  var el = document.getElementById('log');
+  var d  = document.createElement('div');
+  d.className = 'log-entry' + (type ? ' ' + type : '');
+  d.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+  el.appendChild(d);
+  el.scrollTop = el.scrollHeight;
+}
+
+function setStatus(state, text) {
+  document.getElementById('dot').className = 'dot' + (state ? ' ' + state : '');
+  document.getElementById('statusText').textContent = text;
+}
+
+function setProgress(pct, label) {
+  document.getElementById('progFill').style.width = pct + '%';
+  document.getElementById('progPct').textContent  = pct + '%';
+  document.getElementById('progLabel').textContent = label;
+}
+
+function delay(ms) {
+  return new Promise(function(r) { setTimeout(r, ms); });
+}
+
+// ── BLE ───────────────────────────────────────────────────────────────────────
+async function connectBLE() {
+  if (!navigator.bluetooth) { log('Web Bluetooth not supported. Use Chrome or Edge.', 'err'); return; }
+  try {
+    setStatus('connecting', 'Scanning…');
+    log('Scanning for XIAO…', 'info');
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'XIAO-PWM' }],
+      optionalServices: [SVC_UUID]
+    });
+    device.addEventListener('gattserverdisconnected', onDisconnected);
+    server   = await device.gatt.connect();
+    var svc  = await server.getPrimaryService(SVC_UUID);
+    dataChar = await svc.getCharacteristic(DATA_UUID);
+    cmdChar  = await svc.getCharacteristic(CMD_UUID);
+    setStatus('connected', 'Connected · ' + device.name);
+    log('Connected to ' + device.name, 'info');
+    document.getElementById('btnConnect').disabled    = true;
+    document.getElementById('btnDisconnect').disabled = false;
+    updateUploadBtn();
+  } catch(e) {
+    setStatus('error', 'Connection failed');
+    log('Error: ' + e.message, 'err');
+  }
+}
+
+function onDisconnected() {
+  setStatus('', 'Disconnected');
+  log('Device disconnected.', 'err');
+  document.getElementById('btnConnect').disabled    = false;
+  document.getElementById('btnDisconnect').disabled = true;
+  document.getElementById('btnUpload').disabled     = true;
+  document.getElementById('btnStart').disabled      = true;
+  document.getElementById('btnStop').disabled       = true;
+  dataChar = null;
+  cmdChar  = null;
+}
+
+async function disconnectBLE() {
+  if (device && device.gatt.connected) device.gatt.disconnect();
+}
+
+// ── CSV ───────────────────────────────────────────────────────────────────────
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('dragover');
+  if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]);
+}
+
+function loadFile(file) {
+  if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(e) { parseCSV(e.target.result); };
+  reader.readAsText(file);
+}
+
+function parseCSV(text) {
+  var lines = text.trim().split('\n').filter(function(l) { return l.trim(); });
+  var firstCols = lines[0].toLowerCase().split(',').map(function(s) { return s.trim(); });
+  var hasHeader = isNaN(parseInt(firstCols[0]));
+  var dataLines = hasHeader ? lines.slice(1) : lines;
+
+  rows = [];
+  for (var i = 0; i < dataLines.length; i++) {
+    var parts = dataLines[i].split(',').map(function(s) { return s.trim(); });
+    if (parts.length < 3) continue;
+    var idx  = parseInt(parts[0]);
+    var pwm  = parseInt(parts[1]);
+    var time = parseInt(parts[2]);
+    if (isNaN(idx) || isNaN(pwm) || isNaN(time)) continue;
+    if (pwm < 0 || pwm > 255) { log('Row ' + idx + ': PWM ' + pwm + ' out of range, skipped.', 'err'); continue; }
+    rows.push({ index: idx, pwm: pwm, time: time });
+  }
+
+  if (!rows.length) { log('No valid rows found in CSV.', 'err'); return; }
+
+  var totalTime = 0, maxPWM = 0;
+  for (var j = 0; j < rows.length; j++) {
+    totalTime += rows[j].time;
+    if (rows[j].pwm > maxPWM) maxPWM = rows[j].pwm;
+  }
+
+  document.getElementById('sumRows').textContent      = rows.length;
+  document.getElementById('sumMaxPWM').textContent    = maxPWM;
+  document.getElementById('sumTotalTime').textContent = totalTime;
+
+  var tbody = document.getElementById('tableBody');
+  tbody.innerHTML = '';
+  for (var k = 0; k < rows.length; k++) {
+    var tr = document.createElement('tr');
+    tr.innerHTML = '<td>' + rows[k].index + '</td><td>' + rows[k].pwm + '</td><td>' + rows[k].time + '</td>';
+    tbody.appendChild(tr);
+  }
+
+  document.getElementById('summaryWrap').style.display = '';
+  log('Loaded ' + rows.length + ' rows. Total: ' + totalTime + ' ms.', 'info');
+  updateUploadBtn();
+}
+
+function updateUploadBtn() {
+  document.getElementById('btnUpload').disabled = !(rows.length && dataChar);
+}
+
+// ── Upload ────────────────────────────────────────────────────────────────────
+async function uploadSequence() {
+  if (!rows.length || !dataChar) return;
+  document.getElementById('btnUpload').disabled = true;
+  document.getElementById('btnStart').disabled  = true;
+  document.getElementById('progressWrap').style.display = '';
+  setProgress(0, 'Uploading…');
+  log('Uploading ' + rows.length + ' rows…', 'info');
+
+  await cmdChar.writeValue(new Uint8Array([0x00, (rows.length >> 8) & 0xFF, rows.length & 0xFF]));
+  await delay(50);
+
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    await dataChar.writeValue(new Uint8Array([
+      0x01,
+      (i >> 8) & 0xFF,
+      i & 0xFF,
+      r.pwm & 0xFF,
+      (r.time >> 8) & 0xFF,
+      r.time & 0xFF,
+      0x00
+    ]));
+    setProgress(Math.round(((i + 1) / rows.length) * 100), 'Uploading row ' + (i + 1) + '/' + rows.length);
+    await delay(15);
+  }
+
+  log('Upload complete. Ready to start.', 'info');
+  setProgress(100, 'Upload complete');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnStop').disabled  = false;
+}
+
+// ── Commands ──────────────────────────────────────────────────────────────────
+async function startSequence() {
+  if (!cmdChar) return;
+  await cmdChar.writeValue(new Uint8Array([0x02]));
+  log('▶ Start command sent.', 'info');
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnStop').disabled  = false;
+}
+
+async function stopSequence() {
+  if (!cmdChar) return;
+  await cmdChar.writeValue(new Uint8Array([0x03]));
+  log('⏹ Stop command sent.', 'info');
+  document.getElementById('btnStop').disabled  = true;
+  document.getElementById('btnStart').disabled = false;
+}
+
+// ── Reset ─────────────────────────────────────────────────────────────────────
+function resetApp() {
+  rows = [];
+  document.getElementById('summaryWrap').style.display  = 'none';
+  document.getElementById('tableBody').innerHTML         = '';
+  document.getElementById('fileInput').value             = '';
+  document.getElementById('sumRows').textContent         = '-';
+  document.getElementById('sumMaxPWM').textContent       = '-';
+  document.getElementById('sumTotalTime').textContent    = '-';
+  document.getElementById('progressWrap').style.display = 'none';
+  document.getElementById('log').innerHTML               = '';
+  document.getElementById('btnUpload').disabled          = true;
+  document.getElementById('btnStart').disabled           = true;
+  document.getElementById('btnStop').disabled            = true;
+  setProgress(0, '');
+  log('App reset. Connection maintained.', 'info');
+}
+</script>
+</body>
+</html>
